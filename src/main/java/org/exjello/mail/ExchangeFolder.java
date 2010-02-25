@@ -88,11 +88,7 @@ class ExchangeFolder extends Folder {
                     }
                     if (!deletedMessages.isEmpty()) {
                         try {
-                            if (((ExchangeStore) getStore()).isDeleting()) {
-                                connection.delete(deletedMessages);
-                            } else {
-                                connection.markRead(deletedMessages);
-                            }
+                            connection.delete(deletedMessages);
                         } catch (Exception ex) {
                             throw new MessagingException(ex.getMessage(), ex);
                         }
@@ -223,8 +219,7 @@ class ExchangeFolder extends Folder {
         synchronized (this) {
             this.mode = mode;
             try {
-                messages = connection.getMessages(store.isUnfiltered(),
-                        store.getLimit());
+                messages = connection.getMessages();
             } catch (MessagingException ex) {
                 throw ex;
             } catch (Exception ex) {

@@ -22,7 +22,8 @@ THE SOFTWARE.
 
 package org.exjello.mail;
 
-import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
+import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -30,10 +31,15 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.io.OutputStream;
 import java.io.StringWriter;
 
+import java.math.BigInteger;
+
 import java.net.InetAddress;
+import java.net.MalformedURLException;
+import java.net.UnknownHostException;
 import java.net.URL;
 
 import java.util.ArrayList;
@@ -42,7 +48,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Properties;
+import java.util.Random;
 
+import javax.mail.Address;
+import javax.mail.Message;
+import javax.mail.Session;
+
+import javax.mail.internet.InternetAddress;
+import javax.mail.internet.MimeMessage;
 import javax.mail.internet.SharedInputStream;
 
 import javax.mail.util.SharedFileInputStream;
@@ -68,8 +81,10 @@ import org.apache.commons.httpclient.auth.AuthScope;
 
 import org.apache.commons.httpclient.methods.ByteArrayRequestEntity;
 import org.apache.commons.httpclient.methods.GetMethod;
+import org.apache.commons.httpclient.methods.InputStreamRequestEntity;
 import org.apache.commons.httpclient.methods.OptionsMethod;
 import org.apache.commons.httpclient.methods.PostMethod;
+import org.apache.commons.httpclient.methods.PutMethod;
 import org.apache.commons.httpclient.methods.RequestEntity;
 
 import org.w3c.dom.Document;
@@ -80,10 +95,23 @@ import org.xml.sax.SAXException;
 
 import org.xml.sax.helpers.DefaultHandler;
 
+import static org.exjello.mail.ExchangeConstants.MAILBOX_PROPERTY;
+import static org.exjello.mail.ExchangeConstants.FROM_PROPERTY;
+import static org.exjello.mail.ExchangeConstants.UNFILTERED_PROPERTY;
+import static org.exjello.mail.ExchangeConstants.DELETE_PROPERTY;
+import static org.exjello.mail.ExchangeConstants.LIMIT_PROPERTY;
+import static org.exjello.mail.ExchangeConstants.SSL_PROPERTY;
+import static org.exjello.mail.ExchangeConstants.PORT_PROPERTY;
+import static org.exjello.mail.ExchangeConstants.TIMEOUT_PROPERTY;
+import static org.exjello.mail.ExchangeConstants.CONNECTION_TIMEOUT_PROPERTY;
+import static org.exjello.mail.ExchangeConstants.LOCAL_ADDRESS_PROPERTY;
+
 class ExchangeConnection {
 
     private static final Map<String, byte[]> RESOURCES =
             new HashMap<String, byte[]>();
+
+    private static final Random RANDOM = new Random();
 
     private static final String GET_UNREAD_MESSAGES_SQL_RESOURCE =
             "get-unread-messages.sql";
@@ -94,7 +122,13 @@ class ExchangeConnection {
     private static final String SIGN_ON_URI =
             "/exchweb/bin/auth/owaauth.dll";
 
+    private static final String DEBUG_PASSWORD_PROPERTY =
+            "org.exjello.mail.debug.password";
+
     private static final String HTTPMAIL_NAMESPACE = "urn:schemas:httpmail:";
+
+    private static final String MAILHEADER_NAMESPACE =
+            "urn:schemas:mailheader:";
 
     private static final String DAV_NAMESPACE = "DAV:";
 
@@ -106,8 +140,18 @@ class ExchangeConnection {
 
     private static final String BPROPPATCH_METHOD = "BPROPPATCH";
 
+    private static final String PROPPATCH_METHOD = "PROPPATCH";
+
+    private static final String MOVE_METHOD = "MOVE";
+
+    private static final String MESSAGE_CONTENT_TYPE = "message/rfc822";
+
     private static final String XML_CONTENT_TYPE =
             "text/xml; charset=\"UTF-8\"";
+
+    private static final int HTTP_PORT = 80;
+
+    private static final int HTTPS_PORT = 443;
 
     private static final boolean[] ALLOWED_CHARS = new boolean[128];
 
@@ -121,6 +165,8 @@ class ExchangeConnection {
     private static byte[] unreadInboxEntity;
 
     private static byte[] allInboxEntity;
+
+    private final Session session;
 
     private final String server;
 
@@ -136,11 +182,19 @@ class ExchangeConnection {
 
     private final InetAddress localAddress;
 
-    private String inboxRequest;
+    private final boolean unfiltered;
+
+    private final boolean delete;
+
+    private final int limit;
 
     private HttpClient client;
 
     private String inbox;
+
+    private String drafts;
+
+    private String submissionUri;
 
     static {
         // a - z
@@ -170,9 +224,177 @@ class ExchangeConnection {
         ALLOWED_CHARS[(int) '/'] = true;
     }
 
-    public ExchangeConnection(String server, String mailbox, String username,
-            String password, int timeout, int connectionTimeout,
-                    InetAddress localAddress) {
+    public static ExchangeConnection createConnection(String protocol,
+            Session session, String host, int port, String username,
+                    String password) throws Exception {
+        String prefix = "mail." + protocol.toLowerCase() + ".";
+        boolean debugPassword = Boolean.parseBoolean(
+                session.getProperty(DEBUG_PASSWORD_PROPERTY));
+        String pwd = (password == null) ? null : debugPassword ? password :
+                "<password>";
+        if (host == null || username == null || password == null) {
+            if (session.getDebug()) {
+                session.getDebugOut().println("Missing parameter; host=\"" +
+                        host + "\",username=\"" + username + "\",password=\"" +
+                                pwd + "\"");
+            }
+            throw new IllegalStateException(
+                    "Host, username, and password must be specified.");
+        }
+        boolean unfiltered = Boolean.parseBoolean(
+                session.getProperty(UNFILTERED_PROPERTY));
+        boolean delete = Boolean.parseBoolean(
+                session.getProperty(DELETE_PROPERTY));
+        boolean secure = Boolean.parseBoolean(
+                session.getProperty(prefix + SSL_PROPERTY));
+        int limit = -1;
+        String limitString = session.getProperty(LIMIT_PROPERTY);
+        if (limitString != null) {
+            try {
+                limit = Integer.parseInt(limitString);
+            } catch (NumberFormatException ex) {
+                throw new NumberFormatException("Invalid limit specified: " +
+                        limitString);
+            }
+        }
+        try {
+            URL url = new URL(host);
+            // if parsing succeeded, then strip out the components and use
+            secure = "https".equalsIgnoreCase(url.getProtocol());
+            host = url.getHost();
+            int specifiedPort = url.getPort();
+            if (specifiedPort != -1) port = specifiedPort;
+        } catch (MalformedURLException ex) {
+            if (session.getDebug()) {
+                session.getDebugOut().println("Not parsing " + host +
+                        " as a URL; using explicit options for " +
+                                "secure, host, and port.");
+            }
+        }
+        if (port == -1) {
+            try {
+                port = Integer.parseInt(session.getProperty(prefix +
+                        PORT_PROPERTY));
+            } catch (Exception ignore) { }
+            if (port == -1) port = secure ? HTTPS_PORT : HTTP_PORT;
+        }
+        String server = (secure ? "https://" : "http://") + host;
+        if (secure ? (port != HTTPS_PORT) : (port != HTTP_PORT)) {
+            server += ":" + port;
+        }
+        String mailbox = session.getProperty(MAILBOX_PROPERTY);
+        if (mailbox == null) {
+            mailbox = session.getProperty(prefix + FROM_PROPERTY);
+        }
+        int index = username.indexOf(':');
+        if (index != -1) {
+            mailbox = username.substring(index + 1);
+            username = username.substring(0, index);
+            String mailboxOptions = null;
+            index = mailbox.indexOf('[');
+            if (index != -1) {
+                mailboxOptions = mailbox.substring(index + 1);
+                mailboxOptions = mailboxOptions.substring(0,
+                        mailboxOptions.indexOf(']'));
+                mailbox = mailbox.substring(0, index);
+            }
+            if (mailboxOptions != null) {
+                Properties props = null;
+                try {
+                    props = parseOptions(mailboxOptions);
+                } catch (Exception ex) {
+                    throw new IllegalArgumentException(
+                            "Unable to parse mailbox options: " +
+                                    ex.getMessage(), ex);
+                }
+                String value = props.getProperty("unfiltered");
+                if (value != null) unfiltered = Boolean.parseBoolean(value);
+                value = props.getProperty("delete");
+                if (value != null) delete = Boolean.parseBoolean(value);
+                value = props.getProperty("limit");
+                if (value != null) {
+                    try {
+                        limit = Integer.parseInt(value);
+                    } catch (NumberFormatException ex) {
+                        throw new NumberFormatException(
+                                "Invalid limit specified: " + value);
+                    }
+                }
+            } else if (session.getDebug()) {
+                session.getDebugOut().println("No mailbox options specified; " +
+                        "using explicit limit, unfiltered, and delete.");
+            }
+        } else if (session.getDebug()) {
+            session.getDebugOut().println("No mailbox specified in username; " +
+                    "using explicit mailbox, limit, unfiltered, and delete.");
+        }
+        int timeout = -1;
+        String timeoutString = session.getProperty(prefix + TIMEOUT_PROPERTY);
+        if (timeoutString != null) {
+            try {
+                timeout = Integer.parseInt(timeoutString);
+            } catch (NumberFormatException ex) {
+                throw new NumberFormatException("Invalid timeout value: " +
+                        timeoutString);
+            }
+        }
+        int connectionTimeout = -1;
+        timeoutString = session.getProperty(prefix +
+                CONNECTION_TIMEOUT_PROPERTY);
+        if (timeoutString != null) {
+            try {
+                connectionTimeout = Integer.parseInt(timeoutString);
+            } catch (NumberFormatException ex) {
+                throw new NumberFormatException(
+                        "Invalid connection timeout value: " + timeoutString);
+            }
+        }
+        InetAddress localAddress = null;
+        String localAddressString = session.getProperty(prefix +
+                LOCAL_ADDRESS_PROPERTY);
+        if (localAddressString != null) {
+            try {
+                localAddress = InetAddress.getByName(localAddressString);
+            } catch (Exception ex) {
+                throw new UnknownHostException(
+                        "Invalid local address specified: " +
+                                localAddressString);
+            }
+        }
+        if (mailbox == null) {
+            throw new IllegalStateException("No mailbox specified.");
+        }
+        if (session.getDebug()) {
+            PrintStream debugStream = session.getDebugOut();
+            debugStream.println("Server:\t" + server);
+            debugStream.println("Username:\t" + username);
+            debugStream.println("Password:\t" + pwd);
+            debugStream.println("Mailbox:\t" + mailbox);
+            debugStream.print("Options:\t");
+            debugStream.print((limit > 0) ? "Message Limit = " + limit :
+                    "Unlimited Messages");
+            debugStream.print(unfiltered ? "; Unfiltered" :
+                    "; Filtered to Unread");
+            debugStream.println(delete ? "; Delete Messages on Delete" :
+                    "; Mark as Read on Delete");
+            if (timeout > 0) {
+                debugStream.println("Read timeout:\t" + timeout + " ms");
+            }
+            if (connectionTimeout > 0) {
+                debugStream.println("Connection timeout:\t" +
+                        connectionTimeout + " ms");
+            }
+        }
+        return new ExchangeConnection(session, server, mailbox, username,
+                password, timeout, connectionTimeout, localAddress,
+                        unfiltered, delete, limit);
+    }
+
+    private ExchangeConnection(Session session, String server, String mailbox,
+            String username, String password, int timeout,
+                    int connectionTimeout, InetAddress localAddress,
+                            boolean unfiltered, boolean delete, int limit) {
+        this.session = session;
         this.server = server;
         this.mailbox = mailbox;
         this.username = username;
@@ -180,24 +402,30 @@ class ExchangeConnection {
         this.timeout = timeout;
         this.connectionTimeout = connectionTimeout;
         this.localAddress = localAddress;
+        this.unfiltered = unfiltered;
+        this.delete = delete;
+        this.limit = limit;
     }
 
     public void connect() throws Exception {
         synchronized (this) {
             inbox = null;
+            drafts = null;
+            submissionUri = null;
             try {
                 signOn();
             } catch (Exception ex) {
                 inbox = null;
+                drafts = null;
+                submissionUri = null;
                 throw ex;
             }
         }
     }
 
-    public List<String> getMessages(boolean includeRead, int limit)
-            throws Exception {
+    public List<String> getMessages() throws Exception {
         final List<String> messages = new ArrayList<String>();
-        listInbox(includeRead, limit, new DefaultHandler() {
+        listInbox(new DefaultHandler() {
             private final StringBuilder content = new StringBuilder();
             public void characters(char[] ch, int start, int length)
                     throws SAXException {
@@ -217,33 +445,54 @@ class ExchangeConnection {
         return Collections.unmodifiableList(messages);
     }
 
-    public void delete(List<ExchangeMessage> messages) throws Exception {
+    public void send(MimeMessage message) throws Exception {
+        Address[] bccRecipients =
+                message.getRecipients(Message.RecipientType.BCC);
+        if (bccRecipients == null || bccRecipients.length == 0) {
+            bccRecipients = null;
+        }
+        message.setRecipients(Message.RecipientType.BCC, (Address[]) null);
         synchronized (this) {
             if (!isConnected()) {
                 throw new IllegalStateException("Not connected.");
             }
+            if (!canSend()) {
+                throw new IllegalStateException("Unable to access outbox.");
+            }
             HttpClient client = getClient();
-            String path = inbox;
+            String path = drafts;
             if (!path.endsWith("/")) path += "/";
-            ExchangeMethod op = new ExchangeMethod(BDELETE_METHOD, path);
-            op.setHeader("Content-Type", XML_CONTENT_TYPE);
-            op.addHeader("If-Match", "*");
-            op.addHeader("Brief", "t");
-            op.setRequestEntity(createDeleteEntity(messages));
+            String messageName = generateMessageName();
+            path += escape(messageName + ".eml");
+            PutMethod op = new PutMethod(path);
+            op.setRequestHeader("Content-Type", MESSAGE_CONTENT_TYPE);
+            op.setRequestEntity(createMessageEntity(message));
             InputStream stream = null;
             try {
                 int status = client.executeMethod(op);
                 stream = op.getResponseBodyAsStream();
                 if (status >= 300) {
                     throw new IllegalStateException(
-                            "Unable to delete messages.");
+                            "Unable to post message to draft folder.");
                 }
             } finally {
                 try {
                     if (stream != null) {
                         byte[] buf = new byte[65536];
                         try {
-                            while (stream.read(buf, 0, 65536) != -1);
+                            if (session.getDebug()) {
+                                PrintStream log = session.getDebugOut();
+                                log.println("Response Body:");
+                                int count;
+                                while ((count = stream.read(buf, 0, 65536)) !=
+                                        -1) {
+                                    log.write(buf, 0, count);
+                                }
+                                log.flush();
+                                log.println();
+                            } else {
+                                while (stream.read(buf, 0, 65536) != -1);
+                            }
                         } catch (Exception ignore) {
                         } finally {
                             try {
@@ -254,48 +503,107 @@ class ExchangeConnection {
                 } finally {
                     op.releaseConnection();
                 }
+            }
+            if (bccRecipients != null) {
+                ExchangeMethod patch = new ExchangeMethod(PROPPATCH_METHOD,
+                        path);
+                patch.setHeader("Content-Type", XML_CONTENT_TYPE);
+                patch.addHeader("Depth", "0");
+                patch.addHeader("Translate", "f");
+                patch.addHeader("Brief", "t");
+                patch.setRequestEntity(createAddBccEntity(bccRecipients));
+                stream = null;
+                try {
+                    int status = client.executeMethod(patch);
+                    stream = patch.getResponseBodyAsStream();
+                    if (status >= 300) {
+                        throw new IllegalStateException(
+                                "Unable to add BCC recipients. Status: " +
+                                        status);
+                    }
+                } finally {
+                    try {
+                        if (stream != null) {
+                            byte[] buf = new byte[65536];
+                            try {
+                                if (session.getDebug()) {
+                                    PrintStream log = session.getDebugOut();
+                                    log.println("Response Body:");
+                                    int count;
+                                    while ((count =
+                                            stream.read(buf, 0, 65536)) != -1) {
+                                        log.write(buf, 0, count);
+                                    }
+                                    log.flush();
+                                    log.println();
+                                } else {
+                                    while (stream.read(buf, 0, 65536) != -1);
+                                }
+                            } catch (Exception ignore) {
+                            } finally {
+                                try {
+                                    stream.close();
+                                } catch (Exception ignore2) { }
+                            }
+                        }
+                    } finally {
+                        patch.releaseConnection();
+                    }
+                }
+            }
+            ExchangeMethod move = new ExchangeMethod(MOVE_METHOD, path);
+            String destination = submissionUri;
+            if (!destination.endsWith("/")) destination += "/";
+            move.setHeader("Destination", destination);
+            stream = null;
+            try {
+                int status = client.executeMethod(move);
+                stream = move.getResponseBodyAsStream();
+                if (status >= 300) {
+                    throw new IllegalStateException(
+                            "Unable to move message to outbox: Status " +
+                                    status);
+                }
+            } finally {
+                try {
+                    if (stream != null) {
+                        byte[] buf = new byte[65536];
+                        try {
+                            if (session.getDebug()) {
+                                PrintStream log = session.getDebugOut();
+                                log.println("Response Body:");
+                                int count;
+                                while ((count = stream.read(buf, 0, 65536)) !=
+                                        -1) {
+                                    log.write(buf, 0, count);
+                                }
+                                log.flush();
+                                log.println();
+                            } else {
+                                while (stream.read(buf, 0, 65536) != -1);
+                            }
+                        } catch (Exception ignore) {
+                        } finally {
+                            try {
+                                stream.close();
+                            } catch (Exception ignore2) { }
+                        }
+                    }
+                } finally {
+                    move.releaseConnection();
+                }
+            }
+            if (session.getDebug()) {
+                session.getDebugOut().println("Sent successfully.");
             }
         }
     }
 
-    public void markRead(List<ExchangeMessage> messages) throws Exception {
-        synchronized (this) {
-            if (!isConnected()) {
-                throw new IllegalStateException("Not connected.");
-            }
-            HttpClient client = getClient();
-            String path = inbox;
-            if (!path.endsWith("/")) path += "/";
-            ExchangeMethod op = new ExchangeMethod(BPROPPATCH_METHOD, path);
-            op.setHeader("Content-Type", XML_CONTENT_TYPE);
-            op.addHeader("If-Match", "*");
-            op.addHeader("Brief", "t");
-            op.setRequestEntity(createMarkReadEntity(messages));
-            InputStream stream = null;
-            try {
-                int status = client.executeMethod(op);
-                stream = op.getResponseBodyAsStream();
-                if (status >= 300) {
-                    throw new IllegalStateException(
-                            "Unable to mark messages read.");
-                }
-            } finally {
-                try {
-                    if (stream != null) {
-                        byte[] buf = new byte[65536];
-                        try {
-                            while (stream.read(buf, 0, 65536) != -1);
-                        } catch (Exception ignore) {
-                        } finally {
-                            try {
-                                stream.close();
-                            } catch (Exception ignore2) { }
-                        }
-                    }
-                } finally {
-                    op.releaseConnection();
-                }
-            }
+    public void delete(List<ExchangeMessage> messages) throws Exception {
+        if (delete) {
+            doDelete(messages);
+        } else {
+            doMarkRead(messages);
         }
     }
 
@@ -335,8 +643,126 @@ class ExchangeConnection {
                     if (stream != null) {
                         byte[] buf = new byte[65536];
                         try {
-                            while (stream.read(buf, 0, 65536) != -1);
+                            if (session.getDebug()) {
+                                PrintStream log = session.getDebugOut();
+                                log.println("Response Body:");
+                                int count;
+                                while ((count = stream.read(buf, 0, 65536)) !=
+                                        -1) {
+                                    log.write(buf, 0, count);
+                                }
+                                log.flush();
+                                log.println();
+                            } else {
+                                while (stream.read(buf, 0, 65536) != -1);
+                            }
                         } catch (Exception ignore) { 
+                        } finally {
+                            try {
+                                stream.close();
+                            } catch (Exception ignore2) { }
+                        }
+                    }
+                } finally {
+                    op.releaseConnection();
+                }
+            }
+        }
+    }
+
+    private void doDelete(List<ExchangeMessage> messages) throws Exception {
+        synchronized (this) {
+            if (!isConnected()) {
+                throw new IllegalStateException("Not connected.");
+            }
+            HttpClient client = getClient();
+            String path = inbox;
+            if (!path.endsWith("/")) path += "/";
+            ExchangeMethod op = new ExchangeMethod(BDELETE_METHOD, path);
+            op.setHeader("Content-Type", XML_CONTENT_TYPE);
+            op.addHeader("If-Match", "*");
+            op.addHeader("Brief", "t");
+            op.setRequestEntity(createDeleteEntity(messages));
+            InputStream stream = null;
+            try {
+                int status = client.executeMethod(op);
+                stream = op.getResponseBodyAsStream();
+                if (status >= 300) {
+                    throw new IllegalStateException(
+                            "Unable to delete messages.");
+                }
+            } finally {
+                try {
+                    if (stream != null) {
+                        byte[] buf = new byte[65536];
+                        try {
+                            if (session.getDebug()) {
+                                PrintStream log = session.getDebugOut();
+                                log.println("Response Body:");
+                                int count;
+                                while ((count = stream.read(buf, 0, 65536)) !=
+                                        -1) {
+                                    log.write(buf, 0, count);
+                                }
+                                log.flush();
+                                log.println();
+                            } else {
+                                while (stream.read(buf, 0, 65536) != -1);
+                            }
+                        } catch (Exception ignore) {
+                        } finally {
+                            try {
+                                stream.close();
+                            } catch (Exception ignore2) { }
+                        }
+                    }
+                } finally {
+                    op.releaseConnection();
+                }
+            }
+        }
+    }
+
+    private void doMarkRead(List<ExchangeMessage> messages) throws Exception {
+        synchronized (this) {
+            if (!isConnected()) {
+                throw new IllegalStateException("Not connected.");
+            }
+            HttpClient client = getClient();
+            String path = inbox;
+            if (!path.endsWith("/")) path += "/";
+            ExchangeMethod op = new ExchangeMethod(BPROPPATCH_METHOD, path);
+            op.setHeader("Content-Type", XML_CONTENT_TYPE);
+            op.addHeader("If-Match", "*");
+            op.addHeader("Brief", "t");
+            op.setRequestEntity(createMarkReadEntity(messages));
+            InputStream stream = null;
+            try {
+                int status = client.executeMethod(op);
+                stream = op.getResponseBodyAsStream();
+                if (status >= 300) {
+                    throw new IllegalStateException(
+                            "Unable to mark messages read.");
+                }
+            } finally {
+                try {
+                    if (stream != null) {
+                        byte[] buf = new byte[65536];
+                        try {
+                            if (session.getDebug()) {
+                                PrintStream log = session.getDebugOut();
+                                log.println("Response Body:");
+                                int count;
+                                while ((count = stream.read(buf, 0, 65536)) !=
+                                        -1) {
+                                    log.write(buf, 0, count);
+                                }
+                                log.flush();
+                                log.println();
+                            } else {
+                                while (stream.read(buf, 0, 65536) != -1);
+                            }
+                        } catch (Exception ignore) {
                         } finally {
                             try {
                                 stream.close();
@@ -354,8 +780,11 @@ class ExchangeConnection {
         return (inbox != null);
     }
 
-    private void listInbox(boolean includeRead, int limit,
-            DefaultHandler handler) throws Exception {
+    private boolean canSend() {
+        return (drafts != null && submissionUri != null);
+    }
+
+    private void listInbox(DefaultHandler handler) throws Exception {
         synchronized (this) {
             if (!isConnected()) {
                 throw new IllegalStateException("Not connected.");
@@ -365,7 +794,7 @@ class ExchangeConnection {
             op.setHeader("Content-Type", XML_CONTENT_TYPE);
             if (limit > 0) op.setHeader("Range", "rows=0-" + limit);
             op.setHeader("Brief", "t");
-            op.setRequestEntity(includeRead ? createAllInboxEntity() :
+            op.setRequestEntity(unfiltered ? createAllInboxEntity() :
                     createUnreadInboxEntity());
             InputStream stream = null;
             try {
@@ -385,7 +814,19 @@ class ExchangeConnection {
                     if (stream != null) {
                         byte[] buf = new byte[65536];
                         try {
-                            while (stream.read(buf, 0, 65536) != -1);
+                            if (session.getDebug()) {
+                                PrintStream log = session.getDebugOut();
+                                log.println("Response Body:");
+                                int count;
+                                while ((count = stream.read(buf, 0, 65536)) !=
+                                        -1) {
+                                    log.write(buf, 0, count);
+                                }
+                                log.flush();
+                                log.println();
+                            } else {
+                                while (stream.read(buf, 0, 65536) != -1);
+                            }
                         } catch (Exception ignore) {
                         } finally {
                             try {
@@ -402,6 +843,8 @@ class ExchangeConnection {
 
     private void findInbox() throws Exception {
         inbox = null;
+        drafts = null;
+        submissionUri = null;
         HttpClient client = getClient();
         ExchangeMethod op = new ExchangeMethod(PROPFIND_METHOD,
                 server + "/exchange/" + mailbox);
@@ -433,8 +876,14 @@ class ExchangeConnection {
                 public void endElement(String uri, String localName,
                         String qName) throws SAXException {
                     if (!HTTPMAIL_NAMESPACE.equals(uri)) return;
-                    if (!"inbox".equals(localName)) return;
-                    ExchangeConnection.this.inbox = content.toString();
+                    if ("inbox".equals(localName)) {
+                        ExchangeConnection.this.inbox = content.toString();
+                    } else if ("drafts".equals(localName)) {
+                        ExchangeConnection.this.drafts = content.toString();
+                    } else if ("sendmsg".equals(localName)) {
+                        ExchangeConnection.this.submissionUri =
+                                content.toString();
+                    }
                 }
             });
             stream.close();
@@ -444,7 +893,19 @@ class ExchangeConnection {
                 if (stream != null) {
                     byte[] buf = new byte[65536];
                     try {
-                        while (stream.read(buf, 0, 65536) != -1);
+                        if (session.getDebug()) {
+                            PrintStream log = session.getDebugOut();
+                            log.println("Response Body:");
+                            int count;
+                            while ((count = stream.read(buf, 0, 65536)) !=
+                                    -1) {
+                                log.write(buf, 0, count);
+                            }
+                            log.flush();
+                            log.println();
+                        } else {
+                            while (stream.read(buf, 0, 65536) != -1);
+                        }
                     } catch (Exception ignore) {
                     } finally {
                         try {
@@ -493,7 +954,19 @@ class ExchangeConnection {
                 InputStream stream = authTest.getResponseBodyAsStream();
                 byte[] buf = new byte[65536];
                 try {
-                    while (stream.read(buf, 0, 65536) != -1);
+                    if (session.getDebug()) {
+                        PrintStream log = session.getDebugOut();
+                        log.println("Response Body:");
+                        int count;
+                        while ((count = stream.read(buf, 0, 65536)) !=
+                                -1) {
+                            log.write(buf, 0, count);
+                        }
+                        log.flush();
+                        log.println();
+                    } else {
+                        while (stream.read(buf, 0, 65536) != -1);
+                    }
                 } catch (Exception ignore) {
                 } finally {
                     try {
@@ -523,7 +996,19 @@ class ExchangeConnection {
                     InputStream stream = op.getResponseBodyAsStream();
                     byte[] buf = new byte[65536];
                     try {
-                        while (stream.read(buf, 0, 65536) != -1);
+                        if (session.getDebug()) {
+                            PrintStream log = session.getDebugOut();
+                            log.println("Response Body:");
+                            int count;
+                            while ((count = stream.read(buf, 0, 65536)) !=
+                                    -1) {
+                                log.write(buf, 0, count);
+                            }
+                            log.flush();
+                            log.println();
+                        } else {
+                            while (stream.read(buf, 0, 65536) != -1);
+                        }
                     } catch (Exception ignore) {
                     } finally {
                         try {
@@ -536,6 +1021,37 @@ class ExchangeConnection {
             }
         }
         findInbox();
+    }
+
+    private RequestEntity createMessageEntity(MimeMessage message)
+            throws Exception {
+        final File tempFile = File.createTempFile("exmail", null, null);
+        tempFile.deleteOnExit();
+        OutputStream output = new BufferedOutputStream(
+                new FileOutputStream(tempFile));
+        message.writeTo(output);
+        if (session.getDebug()) {
+            PrintStream log = session.getDebugOut();
+            log.println("Message Content:");
+            message.writeTo(log);
+            log.println();
+            log.flush();
+        }
+        output.flush();
+        output.close();
+        InputStream stream = new FileInputStream(tempFile) {
+            public void close() throws IOException {
+                try {
+                    super.close();
+                } finally {
+                    try {
+                        if (!tempFile.delete()) tempFile.deleteOnExit();
+                    } catch (Exception ignore) { }
+                }
+            }
+        };
+        return new InputStreamRequestEntity(stream, tempFile.length(),
+                MESSAGE_CONTENT_TYPE);
     }
 
     private static RequestEntity createFindInboxEntity() throws Exception {
@@ -553,6 +1069,12 @@ class ExchangeConnection {
                 Element inbox = doc.createElementNS(HTTPMAIL_NAMESPACE,
                         "inbox");
                 prop.appendChild(inbox);
+                Element drafts = doc.createElementNS(HTTPMAIL_NAMESPACE,
+                        "drafts");
+                prop.appendChild(drafts);
+                Element sendmsg = doc.createElementNS(HTTPMAIL_NAMESPACE,
+                        "sendmsg");
+                prop.appendChild(sendmsg);
                 ByteArrayOutputStream collector = new ByteArrayOutputStream();
                 Transformer transformer =
                         TransformerFactory.newInstance().newTransformer();
@@ -626,6 +1148,41 @@ class ExchangeConnection {
         Transformer transformer =
                 TransformerFactory.newInstance().newTransformer();
         transformer.setOutputProperty(OutputKeys.ENCODING, "utf-8");
+        transformer.transform(new DOMSource(doc),
+                new StreamResult(collector));
+        return new ByteArrayRequestEntity(collector.toByteArray(),
+                XML_CONTENT_TYPE);
+    }
+
+    private RequestEntity createAddBccEntity(Address[] addresses)
+            throws Exception {
+        StringBuilder recipientList = new StringBuilder();
+        for (Address address : addresses) {
+            if (recipientList.length() != 0) recipientList.append(';');
+            recipientList.append(((InternetAddress) address).getAddress());
+        }
+        DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
+        dbf.setNamespaceAware(true);
+        Document doc = dbf.newDocumentBuilder().newDocument();
+        Element propertyUpdate = doc.createElementNS(DAV_NAMESPACE,
+                "propertyupdate");
+        doc.appendChild(propertyUpdate);
+        Element set = doc.createElementNS(DAV_NAMESPACE, "set");
+        propertyUpdate.appendChild(set);
+        Element prop = doc.createElementNS(DAV_NAMESPACE, "prop");
+        set.appendChild(prop);
+        Element bcc = doc.createElementNS(MAILHEADER_NAMESPACE, "bcc");
+        prop.appendChild(bcc);
+        bcc.appendChild(doc.createTextNode(recipientList.toString()));
+        ByteArrayOutputStream collector = new ByteArrayOutputStream();
+        Transformer transformer =
+                TransformerFactory.newInstance().newTransformer();
+        transformer.setOutputProperty(OutputKeys.ENCODING, "utf-8");
+        if (session.getDebug()) {
+            transformer.transform(new DOMSource(doc),
+                    new StreamResult(session.getDebugOut()));
+            session.getDebugOut().println();
+        }
         transformer.transform(new DOMSource(doc),
                 new StreamResult(collector));
         return new ByteArrayRequestEntity(collector.toByteArray(),
@@ -712,6 +1269,22 @@ class ExchangeConnection {
             }
         }
         return collector.toString();
+    }
+
+    private static String generateMessageName() {
+        synchronized (RANDOM) {
+            return new BigInteger(200, RANDOM).toString(Character.MAX_RADIX);
+        }
+    }
+
+    private static Properties parseOptions(String options) throws Exception {
+        StringBuilder collector = new StringBuilder();
+        String[] nvPairs = options.split("[,;]");
+        for (String nvPair : nvPairs) collector.append(nvPair).append('\n');
+        Properties properties = new Properties();
+        properties.load(new ByteArrayInputStream(
+                collector.toString().getBytes("ISO-8859-1")));
+        return properties;
     }
 
 }
