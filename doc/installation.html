@@ -1,0 +1,104 @@
+<html>
+<head>
+<title>exJello - Installation</title>
+<style type="text/css">
+    body {
+        font-family: Verdana, Helvetica, Arial, sans-serif;
+        font-size: 10pt;
+    }
+</style>
+</head>
+<body>
+<div>
+<div>
+<div style="display:block;margin-right:auto;margin-left:auto;text-align:center"><img border="0" src="installation.gif"></div>
+</div>
+<ol><li>Ensure you have all dependencies available in your environment (the ones marked as "included" are delivered in the exJello distribution for your convenience):</li>
+</ol>
+<ul>
+<ul><li>Apache Commons HttpClient, version 3.1 (included)</li>
+<li>Apache Commons Codec, version 1.2 (included)</li>
+<li>Apache Commons Logging, version 1.0.4 (included)</li>
+<li>JavaMail API, version 1.4</li>
+<li>JavaBeans Activation Framework, version 1.1</li></ul></ul>
+<ol><li value="2">Download the latest binary release zip file from <a href="http://code.google.com/p/exjello/downloads/">http://code.google.com/p/exjello/downloads/</a>&nbsp;(the current version is 1.0).</li>
+<li>Expand the archive; inside are three jar files:</li>
+</ol>
+<ul>
+<ul><li>exjello.jar - The exJello provider library</li>
+<li>exjello-pop3.jar - A simple "stub" jar for installing the POP3 provider</li>
+<li>exjello-smtp.jar - A stub for installing the SMTP provider</li></ul></ul>
+<ol><li value="4">Add "exjello.jar" to your classpath. &nbsp;The means for doing this may vary based on the environment in which exJello is being installed; generally, you would install this alongside the JavaMail "mail.jar".</li>
+<li>If you want to use the exJello POP3 provider, add "exjello-pop3.jar" to your classpath as well. &nbsp;Alternatively, you can edit your "javamail.providers" file (found in the "lib" subdirectory of your Java installation) and add the following (this should be a single line in the file):</li>
+</ol>
+</div>
+<div>
+<div class="sites-codeblock sites-codesnippet-block"><code>protocol=pop3; type=store; class=org.exjello.mail.ExchangeStore; vendor=exJello</code></div>
+</div>
+<div>
+<ol><li value="6">If you want to use the exJello SMTP provider, add "exjello-smtp.jar" to your classpath or add the following to "javamail.providers" (again, should be all on the same line):</li>
+</ol>
+<div class="sites-codeblock sites-codesnippet-block"><code>protocol=smtp; type=transport; class=org.exjello.mail.ExchangeTransport; vendor=exJello</code></div>
+</div>
+<div>
+<ol><li value="7">If you are missing any of the dependency libraries, some of them are distributed with exJello; they can be found in the "dep" subdirectory under where you extracted the archive. &nbsp;Simply add those to your classpath as well.</li>
+</ol>
+</div>
+<div>That's it! &nbsp;exJello should now be installed; you can move on to <a href="configuration.html">configuring exJello</a>. &nbsp;If you want to confirm that your environment is set up to use the exJello provider(s), you can use the following small test program:</div>
+<div><br>
+</div>
+<div>
+<div></div>
+<div class="sites-codeblock sites-codesnippet-block">
+<div><code>import java.util.Properties;</code></div>
+<div><code>import javax.mail.Session;</code></div>
+<div><code>import javax.mail.Store;</code></div>
+<div><code>import javax.mail.Transport;</code></div>
+<div><br>
+</div>
+<div><code>public class JelloTest {</code></div>
+<div><br>
+</div>
+<div><code>&nbsp;&nbsp; &nbsp;public static void main(String[] args) throws Exception {</code></div>
+<div><code>&nbsp;&nbsp; &nbsp; &nbsp; &nbsp;Session session = Session.getInstance(new Properties());</code></div>
+<div><code>&nbsp;&nbsp; &nbsp; &nbsp; &nbsp;Store store = session.getStore("pop3");</code></div>
+<div><code>&nbsp;&nbsp; &nbsp; &nbsp; &nbsp;String storeClass = store.getClass().getName();</code></div>
+<div><code>&nbsp;&nbsp; &nbsp; &nbsp; &nbsp;System.out.println("POP3 Store provider class is \"" +</code></div>
+<div><code>&nbsp;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;storeClass + "\".");</code></div>
+<div><code>&nbsp;&nbsp; &nbsp; &nbsp; &nbsp;System.out.println("The exJello POP3 provider " +</code></div>
+<div><code>&nbsp;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;("org.exjello.mail.ExchangeStore".equals(storeClass) ?</code></div>
+<div><code>&nbsp;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"IS" : "is NOT") + " installed.");</code></div>
+<div><code>&nbsp;&nbsp; &nbsp; &nbsp; &nbsp;System.out.println();</code></div>
+<div><code>&nbsp;&nbsp; &nbsp; &nbsp; &nbsp;Transport transport = session.getTransport("smtp");</code></div>
+<div><code>&nbsp;&nbsp; &nbsp; &nbsp; &nbsp;String transportClass = transport.getClass().getName();</code></div>
+<div><code>&nbsp;&nbsp; &nbsp; &nbsp; &nbsp;System.out.println("SMTP Transport provider class is \"" +</code></div>
+<div><code>&nbsp;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;transportClass + "\".");</code></div>
+<div><code>&nbsp;&nbsp; &nbsp; &nbsp; &nbsp;System.out.println("The exJello SMTP provider " +</code></div>
+<div><code>&nbsp;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;("org.exjello.mail.ExchangeTransport".equals(transportClass) ?</code></div>
+<div><code>&nbsp;&nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp; &nbsp;"IS" : "is NOT") + " installed.");</code></div>
+<div><code>&nbsp;&nbsp; &nbsp;}</code></div>
+<div><br>
+</div>
+<div><code>}</code></div>
+</div>
+<div><br>
+</div>
+<div>With both exJello providers installed, the output of the above should be:</div>
+<div><br>
+</div>
+<div>
+<div></div>
+<div class="sites-codeblock sites-codesnippet-block">
+<div><code>
+<div>POP3 Store provider class is "org.exjello.mail.ExchangeStore".</div>
+<div>The exJello POP3 provider IS installed.</div>
+<div><br>
+</div>
+<div>SMTP Transport provider class is "org.exjello.mail.ExchangeTransport".</div>
+<div>The exJello SMTP provider IS installed.</div>
+</code></div>
+</div>
+</div>
+</div>
+</body>
+</html>

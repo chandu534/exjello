@@ -1,2 +1,0 @@
-protocol=pop3; type=store; class=org.exjello.mail.ExchangeStore; vendor=exJello
-protocol=smtp; type=transport; class=org.exjello.mail.ExchangeTransport; vendor=exJello

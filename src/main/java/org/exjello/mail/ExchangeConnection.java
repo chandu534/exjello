@@ -285,6 +285,9 @@ class ExchangeConnection {
         String mailbox = session.getProperty(MAILBOX_PROPERTY);
         if (mailbox == null) {
             mailbox = session.getProperty(prefix + FROM_PROPERTY);
+            if (mailbox == null) {
+                mailbox = InternetAddress.getLocalAddress(session).getAddress();
+            }
         }
         int index = username.indexOf(':');
         if (index != -1) {

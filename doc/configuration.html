@@ -1,0 +1,114 @@
+<html>
+<head>
+<title>exJello - Configuration</title>
+<style type="text/css">
+    body {
+        font-family: Verdana, Helvetica, Arial, sans-serif;
+        font-size: 10pt;
+    }
+    tr {
+        vertical-align: top;
+    }
+    td {
+        font-family: Verdana, Helvetica, Arial, sans-serif;
+        font-size: 10pt;
+    }
+</style>
+</head>
+<body>
+<div>
+<div style="display:block;margin-right:auto;margin-left:auto;text-align:center"><img border="0" src="configuration.gif"></div>
+</div>
+<div><br>
+</div>
+exJello is configured through the properties provided when establishing a JavaMail session. &nbsp;In particular, the following properties are used:
+<div><br>
+</div>
+<div>
+<table width="600" cellpadding="3px" border="1" bordercolor="#888" cellspacing="0" style="border-collapse:collapse;border-top-color:rgb(136, 136, 136);border-right-color:rgb(136, 136, 136);border-bottom-color:rgb(136, 136, 136);border-left-color:rgb(136, 136, 136);border-top-width:1px;border-right-width:1px;border-bottom-width:1px;border-left-width:1px">
+<tbody>
+<tr>
+<td style="width:151px;height:22px">&nbsp;Property</td>
+<td style="width:362px;height:22px">&nbsp;Description</td>
+</tr>
+<tr>
+<td style="width:151px;height:36px">org.exjello.mail.mailbox</td>
+<td style="width:362px;height:36px">Specifies the Exchange mailbox against which operations will be performed. &nbsp;This should be the user's e-mail address (e.g., "my.user@example.com"); for older Exchange systems (prior to Exchange 2003 Service Pack 1) this should be set to the address part only (for example, "my.user"). &nbsp;If specified, this will take precedence over the "mail.smtp.from" and "mail.pop3.from" settings.</td>
+</tr>
+<tr>
+<td style="width:151px;height:19px">org.exjello.mail.limit</td>
+<td style="width:362px;height:19px">Limits the number of messages that will be retrieved in a single session. &nbsp;Default is no limit.</td>
+</tr>
+<tr>
+<td style="width:151px;height:19px">org.exjello.mail.unfiltered</td>
+<td style="width:362px;height:19px">By default, exJello retrieves only unread messages from the Exchange mailbox. &nbsp;Specifying "true" here indicates that all messages should be retrieved.</td>
+</tr>
+<tr>
+<td style="width:151px;height:19px">org.exjello.mail.delete</td>
+<td style="width:362px;height:19px">By default, messages that are deleted through JavaMail are simply marked as read in Exchange by exJello. &nbsp;Setting this to "true" indicates that exJello should physically delete the messages from the mailbox instead.</td>
+</tr>
+<tr>
+<td>mail.smtp.from<br>
+mail.pop3.from</td>
+<td>Specifies the Exchange mailbox against which operations will be performed. &nbsp;This is used in the same way as "org.exjello.mail.mailbox".</td>
+</tr>
+<tr>
+<td>mail.smtp.ssl.enable<br>
+mail.pop3.ssl.enable</td>
+<td>Indicates that HTTPS should be used instead of HTTP when connecting to the Outlook Web Access server.</td>
+</tr>
+<tr>
+<td>mail.smtp.port<br>
+mail.pop3.port</td>
+<td>Specifies the port on the Outlook Web Access server to which exJello should connect. &nbsp;Defaults to 80 for HTTP and 443 for HTTPS.</td>
+</tr>
+<tr>
+<td>mail.smtp.connectiontimeout<br>
+mail.pop3.connectiontimeout</td>
+<td>Time in milliseconds that exJello should wait for a connection to be established before throwing an error.</td>
+</tr>
+<tr>
+<td>mail.smtp.timeout<br>
+mail.pop3.timeout</td>
+<td>Time in milliseconds that exJello should wait for data to be received on the socket before throwing an error.</td>
+</tr>
+<tr>
+<td>mail.smtp.localaddress<br>
+mail.pop3.localaddress</td>
+<td>The local interface that exJello should use to connect to the remote host. &nbsp;Useful for multihomed machines.</td>
+</tr>
+<tr>
+<td>mail.smtp.user<br>
+mail.pop3.user<br>
+mail.user</td>
+<td>The username that should be used for making the connection. &nbsp;This can also be specified directly when obtaining the Store or Transport. &nbsp;This should typically include the user's domain in the form:<br>
+<br>
+<blockquote style="margin:0 0 0 40px;border:none;padding:0px"><span style="font-style:normal"><font face="'courier new', monospace">MYDOMAIN\myusername</font></span></blockquote>
+<br>
+The username can also include the mailbox information directly by applying a colon-separated suffix; for example:<br>
+<br>
+<blockquote style="margin:0 0 0 40px;border:none;padding:0px"><span style="font-style:normal"><font face="'courier new', monospace">MYDOMAIN\myusername:my.user@example.com</font></span></blockquote>
+<br>
+Additionally, the "limit", "unfiltered", and "delete" options can be included by appending those to the mailbox, enclosed in square brackets. &nbsp;For example:<br>
+<br>
+<blockquote style="margin:0 0 0 40px;border:none;padding:0px"><span style="font-style:normal"><font face="'courier new', monospace">MYDOMAIN\myusername:my.user@example.com<br>
+[limit=30,unfiltered=true,delete=false]</font></span></blockquote>
+<br>
+(the above should be on a single line). &nbsp;This allows you to embed options in a single configuration setting, for environments where you may not have full control over all JavaMail properties.</td>
+</tr>
+<tr>
+<td>mail.smtp.host<br>
+mail.pop3.host<br>
+mail.host</td>
+<td>Specifies the server to which exJello should connect. &nbsp;In addition to specifying simply the host name or address, you can also specify a URL to include the protocol and optionally port elements. &nbsp;For example:<br>
+<br>
+<blockquote style="margin:0 0 0 40px;border:none;padding:0px"><span style="font-style:normal"><font face="'courier new', monospace">http://server.example.com:8080</font></span></blockquote>
+<br>
+This will override the configured port and SSL options to connect to port 8080 on the server over HTTP. &nbsp;This can be used to embed additional options in a single configuration setting, for environments where you may not have full control over all JavaMail properties.</td>
+</tr>
+</tbody>
+</table>
+<br>
+</div>
+</body>
+</html>
