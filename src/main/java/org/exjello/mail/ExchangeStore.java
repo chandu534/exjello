@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2010 Eric Glass
+Copyright (c) 2010 Eric Glass, Mirco Attocchi
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -22,6 +22,8 @@ THE SOFTWARE.
 
 package org.exjello.mail;
 
+import java.util.Properties;
+
 import javax.mail.AuthenticationFailedException;
 import javax.mail.Folder;
 import javax.mail.MessagingException;
@@ -38,6 +40,17 @@ public class ExchangeStore extends Store {
 	public ExchangeStore(Session session, URLName urlname) {
 		super(session, urlname);
 	}
+	
+	public void connect(String host,
+            String user,
+            String password,
+            String mailbox)
+     throws MessagingException {
+		Properties props = System.getProperties();
+		props.setProperty(ExchangeConstants.MAILBOX_PROPERTY, mailbox);
+		super.connect(host, user, password);
+	}
+
 
     protected boolean protocolConnect(String host, int port, String username,
             String password) throws MessagingException {

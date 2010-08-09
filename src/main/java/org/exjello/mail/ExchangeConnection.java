@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2010 Eric Glass
+Copyright (c) 2010 Eric Glass, Mirco Attocchi
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -22,26 +22,32 @@ THE SOFTWARE.
 
 package org.exjello.mail;
 
+import static org.exjello.mail.ExchangeConstants.CONNECTION_TIMEOUT_PROPERTY;
+import static org.exjello.mail.ExchangeConstants.DELETE_PROPERTY;
+import static org.exjello.mail.ExchangeConstants.FROM_PROPERTY;
+import static org.exjello.mail.ExchangeConstants.LIMIT_PROPERTY;
+import static org.exjello.mail.ExchangeConstants.LOCAL_ADDRESS_PROPERTY;
+import static org.exjello.mail.ExchangeConstants.MAILBOX_PROPERTY;
+import static org.exjello.mail.ExchangeConstants.PORT_PROPERTY;
+import static org.exjello.mail.ExchangeConstants.SSL_PROPERTY;
+import static org.exjello.mail.ExchangeConstants.TIMEOUT_PROPERTY;
+import static org.exjello.mail.ExchangeConstants.UNFILTERED_PROPERTY;
+
 import java.io.BufferedOutputStream;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.IOException;
-import java.io.PrintStream;
+import java.io.InputStream;
 import java.io.OutputStream;
-import java.io.StringWriter;
-
+import java.io.PrintStream;
 import java.math.BigInteger;
-
 import java.net.InetAddress;
 import java.net.MalformedURLException;
-import java.net.UnknownHostException;
 import java.net.URL;
-
+import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -53,32 +59,21 @@ import java.util.Random;
 import javax.mail.Address;
 import javax.mail.Message;
 import javax.mail.Session;
-
 import javax.mail.internet.InternetAddress;
 import javax.mail.internet.MimeMessage;
-import javax.mail.internet.SharedInputStream;
-
-import javax.mail.util.SharedFileInputStream;
-
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.parsers.SAXParser;
 import javax.xml.parsers.SAXParserFactory;
-
 import javax.xml.transform.OutputKeys;
 import javax.xml.transform.Transformer;
 import javax.xml.transform.TransformerFactory;
-
 import javax.xml.transform.dom.DOMSource;
-
 import javax.xml.transform.stream.StreamResult;
 
-import org.apache.commons.httpclient.Cookie;
-import org.apache.commons.httpclient.Header;
 import org.apache.commons.httpclient.HttpClient;
+import org.apache.commons.httpclient.NTCredentials;
 import org.apache.commons.httpclient.UsernamePasswordCredentials;
-
 import org.apache.commons.httpclient.auth.AuthScope;
-
 import org.apache.commons.httpclient.methods.ByteArrayRequestEntity;
 import org.apache.commons.httpclient.methods.GetMethod;
 import org.apache.commons.httpclient.methods.InputStreamRequestEntity;
@@ -86,25 +81,11 @@ import org.apache.commons.httpclient.methods.OptionsMethod;
 import org.apache.commons.httpclient.methods.PostMethod;
 import org.apache.commons.httpclient.methods.PutMethod;
 import org.apache.commons.httpclient.methods.RequestEntity;
-
 import org.w3c.dom.Document;
 import org.w3c.dom.Element;
-
 import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
-
 import org.xml.sax.helpers.DefaultHandler;
-
-import static org.exjello.mail.ExchangeConstants.MAILBOX_PROPERTY;
-import static org.exjello.mail.ExchangeConstants.FROM_PROPERTY;
-import static org.exjello.mail.ExchangeConstants.UNFILTERED_PROPERTY;
-import static org.exjello.mail.ExchangeConstants.DELETE_PROPERTY;
-import static org.exjello.mail.ExchangeConstants.LIMIT_PROPERTY;
-import static org.exjello.mail.ExchangeConstants.SSL_PROPERTY;
-import static org.exjello.mail.ExchangeConstants.PORT_PROPERTY;
-import static org.exjello.mail.ExchangeConstants.TIMEOUT_PROPERTY;
-import static org.exjello.mail.ExchangeConstants.CONNECTION_TIMEOUT_PROPERTY;
-import static org.exjello.mail.ExchangeConstants.LOCAL_ADDRESS_PROPERTY;
 
 class ExchangeConnection {
 
@@ -117,7 +98,7 @@ class ExchangeConnection {
             "get-unread-messages.sql";
 
     private static final String GET_ALL_MESSAGES_SQL_RESOURCE =
-            "get-all-messages.sql";
+            "get-all-messages.sql";  
 
     private static final String SIGN_ON_URI =
             "/exchweb/bin/auth/owaauth.dll";
@@ -195,6 +176,10 @@ class ExchangeConnection {
     private String drafts;
 
     private String submissionUri;
+    
+    private String sentitems;
+    
+    private String outbox;
 
     static {
         // a - z
@@ -289,6 +274,7 @@ class ExchangeConnection {
                 mailbox = InternetAddress.getLocalAddress(session).getAddress();
             }
         }
+        
         int index = username.indexOf(':');
         if (index != -1) {
             mailbox = username.substring(index + 1);
@@ -415,20 +401,37 @@ class ExchangeConnection {
             inbox = null;
             drafts = null;
             submissionUri = null;
+            sentitems = null;
+            outbox = null;
             try {
                 signOn();
             } catch (Exception ex) {
                 inbox = null;
                 drafts = null;
                 submissionUri = null;
+                sentitems = null;
+                outbox = null;
                 throw ex;
             }
         }
     }
 
-    public List<String> getMessages() throws Exception {
+    public List<String> getMessages(String name) throws Exception {
         final List<String> messages = new ArrayList<String>();
-        listInbox(new DefaultHandler() {
+        
+        /* by default we list inbox */
+        String currentFolder = inbox;
+        if (name.equalsIgnoreCase(ExchangeFolder.INBOX)) {
+        	currentFolder = inbox;
+        } else if (name.equalsIgnoreCase(ExchangeFolder.SENTITEMS)) {
+        	currentFolder = sentitems;
+        } else if (name.equalsIgnoreCase(ExchangeFolder.OUTBOX)) {
+        	currentFolder = outbox;
+        } else if (name.equalsIgnoreCase(ExchangeFolder.DRAFT)) {
+        	currentFolder = drafts;
+        }
+        
+        listFolder(new DefaultHandler() {
             private final StringBuilder content = new StringBuilder();
             public void characters(char[] ch, int start, int length)
                     throws SAXException {
@@ -444,7 +447,7 @@ class ExchangeConnection {
                 if (!"href".equals(localName)) return;
                 messages.add(content.toString());
             }
-        });
+        }, currentFolder);
         return Collections.unmodifiableList(messages);
     }
 
@@ -787,24 +790,26 @@ class ExchangeConnection {
         return (drafts != null && submissionUri != null);
     }
 
-    private void listInbox(DefaultHandler handler) throws Exception {
+    private void listFolder(DefaultHandler handler, String folder)
+            throws Exception {
         synchronized (this) {
             if (!isConnected()) {
                 throw new IllegalStateException("Not connected.");
             }
             HttpClient client = getClient();
-            ExchangeMethod op = new ExchangeMethod(SEARCH_METHOD, inbox);
+            ExchangeMethod op = new ExchangeMethod(SEARCH_METHOD, folder);
             op.setHeader("Content-Type", XML_CONTENT_TYPE);
             if (limit > 0) op.setHeader("Range", "rows=0-" + limit);
             op.setHeader("Brief", "t");
             op.setRequestEntity(unfiltered ? createAllInboxEntity() :
-                    createUnreadInboxEntity());
+                    createUnreadInboxEntity());            
             InputStream stream = null;
             try {
                 int status = client.executeMethod(op);
                 stream = op.getResponseBodyAsStream();
                 if (status >= 300) {
-                    throw new IllegalStateException("Unable to obtain inbox.");
+                    throw new IllegalStateException("Unable to obtain " +
+                            folder+ ".");
                 }
                 SAXParserFactory spf = SAXParserFactory.newInstance();
                 spf.setNamespaceAware(true);
@@ -843,11 +848,13 @@ class ExchangeConnection {
             }
         }
     }
-
+    
     private void findInbox() throws Exception {
         inbox = null;
         drafts = null;
         submissionUri = null;
+        sentitems = null;
+        outbox = null;
         HttpClient client = getClient();
         ExchangeMethod op = new ExchangeMethod(PROPFIND_METHOD,
                 server + "/exchange/" + mailbox);
@@ -883,6 +890,10 @@ class ExchangeConnection {
                         ExchangeConnection.this.inbox = content.toString();
                     } else if ("drafts".equals(localName)) {
                         ExchangeConnection.this.drafts = content.toString();
+                    } else if ("sentitems".equals(localName)) {
+                        ExchangeConnection.this.sentitems = content.toString();
+                    } else if ("outbox".equals(localName)) {
+                        ExchangeConnection.this.outbox = content.toString();                           
                     } else if ("sendmsg".equals(localName)) {
                         ExchangeConnection.this.submissionUri =
                                 content.toString();
@@ -946,8 +957,19 @@ class ExchangeConnection {
         int port = serverUrl.getPort();
         if (port == -1) port = serverUrl.getDefaultPort();
         AuthScope authScope = new AuthScope(host, port);
-        client.getState().setCredentials(authScope,
-                new UsernamePasswordCredentials(username, password));
+        
+        if (username.indexOf("\\") < 0) {
+	        client.getState().setCredentials(authScope,
+	                new UsernamePasswordCredentials(username, password));
+        } else {
+        	// Try to connect with NTLM authentication
+        	String domainUser = username.substring(username.indexOf("\\") + 1,
+                    username.length());
+        	String domain = username.substring(0,username.indexOf("\\"));
+            client.getState().setCredentials(authScope,
+                    new NTCredentials(domainUser, password, host, domain));        	
+        }
+        
         boolean authenticated = false;
         OptionsMethod authTest = new OptionsMethod(server + "/exchange");
         try {
@@ -1078,6 +1100,15 @@ class ExchangeConnection {
                 Element sendmsg = doc.createElementNS(HTTPMAIL_NAMESPACE,
                         "sendmsg");
                 prop.appendChild(sendmsg);
+                Element outbox = doc.createElementNS(HTTPMAIL_NAMESPACE,
+                	"outbox");
+            	prop.appendChild(outbox);
+            	Element sentitems = doc.createElementNS(HTTPMAIL_NAMESPACE,
+            		"sentitems");
+            	prop.appendChild(sentitems);   
+            	
+            	// http://msdn.microsoft.com/en-us/library/ms992623(EXCHG.65).aspx
+            	
                 ByteArrayOutputStream collector = new ByteArrayOutputStream();
                 Transformer transformer =
                         TransformerFactory.newInstance().newTransformer();

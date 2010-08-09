@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2010 Eric Glass
+Copyright (c) 2010 Eric Glass, Mirco Attocchi
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -42,7 +42,10 @@ import javax.mail.event.ConnectionEvent;
 
 class ExchangeFolder extends Folder {
 
-    private static final String INBOX = "INBOX";
+    public static final String INBOX = "INBOX";
+    public static final String SENTITEMS = "SENT ITEMS";
+    public static final String OUTBOX = "OUTBOX";
+    public static final String DRAFT = "DRAFT";
 
     private static final String ROOT = "";
 
@@ -122,7 +125,11 @@ class ExchangeFolder extends Folder {
 
 	public boolean exists() throws MessagingException {
         String name = getName();
-        return INBOX.equalsIgnoreCase(name) || ROOT.equals(name);
+        return INBOX.equalsIgnoreCase(name) ||
+                SENTITEMS.equalsIgnoreCase(name) ||
+                OUTBOX.equalsIgnoreCase(name) ||
+                DRAFT.equalsIgnoreCase(name) ||
+                ROOT.equals(name);
 	}
 
 	public Message[] expunge() throws MessagingException {
@@ -133,8 +140,14 @@ class ExchangeFolder extends Folder {
         if (!ROOT.equals(getName())) {
             throw new MessagingException("Hierarchy not supported.");
         }
+        
         if (INBOX.equalsIgnoreCase(name)) return getStore().getFolder(INBOX);
-        throw new MessagingException("Only INBOX is supported.");
+        if (SENTITEMS.equalsIgnoreCase(name)) {
+            return getStore().getFolder(SENTITEMS);
+        }
+        if (DRAFT.equalsIgnoreCase(name)) return getStore().getFolder(DRAFT);
+        if (OUTBOX.equalsIgnoreCase(name)) return getStore().getFolder(OUTBOX);
+        throw new MessagingException("Folder not supported.");
 	}
 
 	public String getFullName() {
@@ -206,7 +219,13 @@ class ExchangeFolder extends Folder {
         if (!ROOT.equals(name)) {
             throw new MessagingException("Hierarchy not supported.");
         }
-        return new Folder[] { getStore().getFolder(INBOX) };
+        /* return only supported folders */
+        return new Folder[] {
+            getStore().getFolder(INBOX),
+            getStore().getFolder(SENTITEMS),
+            getStore().getFolder(OUTBOX),
+            getStore().getFolder(DRAFT)
+        };
 	}
 
 	public void open(int mode) throws MessagingException {
@@ -219,7 +238,7 @@ class ExchangeFolder extends Folder {
         synchronized (this) {
             this.mode = mode;
             try {
-                messages = connection.getMessages();
+                messages = connection.getMessages(name);
             } catch (MessagingException ex) {
                 throw ex;
             } catch (Exception ex) {
