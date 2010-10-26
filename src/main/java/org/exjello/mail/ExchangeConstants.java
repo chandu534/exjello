@@ -42,6 +42,40 @@ public interface ExchangeConstants {
             "org.exjello.mail.unfiltered";
 
     /**
+     * Specifies whether retrievals should be filtered to return only
+     * messages received after certain date.
+     * Condition is made on 
+     * "urn:schemas:httpmail:datereceived"
+     * Date is specified as a "<code>String</code>" in ISO_8601 format
+     * Date pattern is "yyyy-MM-dd'T'HH:mm:ss'Z'"
+     */
+    public static final String FILTER_LAST_CHECK =
+        "org.exjello.mail.filterlastcheck";
+
+    /**
+     * Specifies whether retrievals should be filtered to return only
+     * messages contains certain text in from field.
+     * Condition is made on 
+     * "urn:schemas:httpmail:fromemail" LIKE '%your_text%' 
+     * For Example you can specify "@yourdomain.com" for filter
+     * all internal messages 
+     */  
+    public static final String FILTER_FROM_PROPERTY =
+            "org.exjello.mail.filterfrom";
+
+    /**
+     * Specifies whether retrievals should be filtered to return only
+     * messages contains certain text in to field.
+     * Condition is made on 
+     * "urn:schemas:httpmail:to" LIKE '%your_text%'
+     * For Example you can specify "help@yourdomain.com" for filter
+     * all messages sent to an alias
+     */    
+    public static final String FILTER_TO_PROPERTY =
+        "org.exjello.mail.filterto";
+
+    
+    /**
      * Specifies whether delete operations should really delete the message,
      * or just mark it as read. "<code>true</code>" performs a delete operation,
      * "<code>false</code>" just marks deleted messages as read.  Defaults to

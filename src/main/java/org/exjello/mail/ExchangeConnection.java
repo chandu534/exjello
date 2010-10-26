@@ -99,7 +99,18 @@ class ExchangeConnection {
 
     private static final String GET_ALL_MESSAGES_SQL_RESOURCE =
             "get-all-messages.sql";  
+    
+    private static final String GET_FILTERED_MESSAGES_SQL_RESOURCE =
+        "get-filtered-messages.sql";      
 
+    private static final String BOOKMARK_FILTER_UNREADED = "{BOOKMARK_FILTER_UNREADED}";
+    
+    private static final String BOOKMARK_FILTER_TO = "{BOOKMARK_FILTER_TO}";
+
+	private static final String BOOKMARK_FILTER_FROM = "{BOOKMARK_FILTER_FROM}";
+
+	private static final String BOOKMARK_FILTER_LAST_CHECK = "{BOOKMARK_FILTER_LAST_CHECK}";
+	
     private static final String SIGN_ON_URI =
             "/exchweb/bin/auth/owaauth.dll";
 
@@ -146,6 +157,8 @@ class ExchangeConnection {
     private static byte[] unreadInboxEntity;
 
     private static byte[] allInboxEntity;
+    
+    private static byte[] customInboxEntity;
 
     private final Session session;
 
@@ -165,6 +178,11 @@ class ExchangeConnection {
 
     private final boolean unfiltered;
 
+    /* Mirco */
+    private final String filterLastCheck;
+    private final String filterFrom;
+    private final String filterTo;
+    
     private final boolean delete;
 
     private final int limit;
@@ -228,6 +246,10 @@ class ExchangeConnection {
         }
         boolean unfiltered = Boolean.parseBoolean(
                 session.getProperty(UNFILTERED_PROPERTY));
+        /* Mirco */
+        String filterLastCheck = session.getProperty(ExchangeConstants.FILTER_LAST_CHECK);
+        String filterFrom = session.getProperty(ExchangeConstants.FILTER_FROM_PROPERTY);
+        String filterTo = session.getProperty(ExchangeConstants.FILTER_TO_PROPERTY);        
         boolean delete = Boolean.parseBoolean(
                 session.getProperty(DELETE_PROPERTY));
         boolean secure = Boolean.parseBoolean(
@@ -298,6 +320,15 @@ class ExchangeConnection {
                 }
                 String value = props.getProperty("unfiltered");
                 if (value != null) unfiltered = Boolean.parseBoolean(value);
+
+                /* Mirco */
+                value = props.getProperty("filterLastCheck");
+                if (value != null) filterLastCheck = value;
+                value = props.getProperty("filterTo");
+                if (value != null) filterTo = value;
+                value = props.getProperty("filterFrom");
+                if (value != null) filterFrom = value;
+                
                 value = props.getProperty("delete");
                 if (value != null) delete = Boolean.parseBoolean(value);
                 value = props.getProperty("limit");
@@ -364,6 +395,12 @@ class ExchangeConnection {
                     "Unlimited Messages");
             debugStream.print(unfiltered ? "; Unfiltered" :
                     "; Filtered to Unread");
+            debugStream.print(filterLastCheck == null || filterLastCheck.isEmpty() ? "; NO filterLastCheck" :
+                "; Filtered after " + filterLastCheck);
+            debugStream.print(filterFrom == null || filterFrom.isEmpty() ? "; NO filterFromDomain" :
+                "; Filtered from " + filterFrom);
+            debugStream.print(filterTo == null || filterTo.isEmpty() ? "; NO filterToEmail" :
+                "; Filtered to " + filterTo);            
             debugStream.println(delete ? "; Delete Messages on Delete" :
                     "; Mark as Read on Delete");
             if (timeout > 0) {
@@ -376,13 +413,15 @@ class ExchangeConnection {
         }
         return new ExchangeConnection(session, server, mailbox, username,
                 password, timeout, connectionTimeout, localAddress,
-                        unfiltered, delete, limit);
+                        unfiltered, delete, limit,
+                        filterLastCheck, filterFrom, filterTo);
     }
 
     private ExchangeConnection(Session session, String server, String mailbox,
             String username, String password, int timeout,
                     int connectionTimeout, InetAddress localAddress,
-                            boolean unfiltered, boolean delete, int limit) {
+                            boolean unfiltered, boolean delete, int limit,
+                            String filterLastCheck, String filterFrom, String filterTo) {
         this.session = session;
         this.server = server;
         this.mailbox = mailbox;
@@ -394,6 +433,10 @@ class ExchangeConnection {
         this.unfiltered = unfiltered;
         this.delete = delete;
         this.limit = limit;
+        /*Mirco*/
+        this.filterLastCheck = filterLastCheck;
+        this.filterFrom = filterFrom;
+        this.filterTo = filterTo;        
     }
 
     public void connect() throws Exception {
@@ -801,8 +844,14 @@ class ExchangeConnection {
             op.setHeader("Content-Type", XML_CONTENT_TYPE);
             if (limit > 0) op.setHeader("Range", "rows=0-" + limit);
             op.setHeader("Brief", "t");
-            op.setRequestEntity(unfiltered ? createAllInboxEntity() :
-                    createUnreadInboxEntity());            
+
+            /* Mirco: Manage of custom query */
+            if ((filterLastCheck == null || filterLastCheck.isEmpty()) && (filterFrom == null || filterFrom.isEmpty()) && (filterTo == null || filterTo.isEmpty())) {
+              op.setRequestEntity(unfiltered ? createAllInboxEntity() :
+            	  createUnreadInboxEntity());            
+            } else {
+            	op.setRequestEntity(createCustomInboxEntity(unfiltered, filterLastCheck, filterFrom, filterTo));
+            }
             InputStream stream = null;
             try {
                 int status = client.executeMethod(op);
@@ -1142,6 +1191,45 @@ class ExchangeConnection {
             return new ByteArrayRequestEntity(allInboxEntity, XML_CONTENT_TYPE);
         }
     }
+
+    private static RequestEntity createCustomInboxEntity(boolean unreaded, String filterLastCheck, String filterFrom, String filterTo) throws Exception {
+        synchronized (ExchangeConnection.class) {
+            if (customInboxEntity == null) {
+            	customInboxEntity = createSearchEntity(new String(getResource(
+            			GET_FILTERED_MESSAGES_SQL_RESOURCE), "UTF-8"));
+            }
+            
+            /* Mirco: Replace Filtes */
+            String filter = new String(customInboxEntity);
+            if (unreaded) {
+            	filter = filter.replace(BOOKMARK_FILTER_UNREADED, "AND \"urn:schemas:httpmail:read\" = False");
+            } else {
+            	filter = filter.replace(BOOKMARK_FILTER_UNREADED, "");
+            }
+            if (filterLastCheck != null && !filterLastCheck.isEmpty()) {
+            	// Es. AND "urn:schemas:httpmail:datereceived" > CAST("2010-08-04T00:00:00Z" as 'dateTime')
+            	filter = filter.replace(BOOKMARK_FILTER_LAST_CHECK, "AND \"urn:schemas:httpmail:datereceived\" > CAST(\""+filterLastCheck+"\" as 'dateTime')");
+            } else {
+            	filter = filter.replace(BOOKMARK_FILTER_LAST_CHECK, "");
+            }
+            if (filterFrom != null && !filterFrom.isEmpty()) {
+            	// Es. AND "urn:schemas:httpmail:fromemail" LIKE '@domain.com%'
+            	filter = filter.replace(BOOKMARK_FILTER_FROM, "AND \"urn:schemas:httpmail:fromemail\" LIKE '%"+filterFrom+"%'");
+            } else {
+            	filter = filter.replace(BOOKMARK_FILTER_FROM, "");
+            }
+            if (filterTo != null && !filterTo.isEmpty()) {
+            	// Es. AND "urn:schemas:httpmail:to" LIKE '%test@domain.com%'
+            	filter = filter.replace(BOOKMARK_FILTER_TO, "AND \"urn:schemas:httpmail:to\" LIKE '%"+filterTo+"%'");
+            } else {
+            	filter = filter.replace(BOOKMARK_FILTER_TO, "");
+            }
+            
+            customInboxEntity = filter.getBytes();
+            return new ByteArrayRequestEntity(customInboxEntity, 
+            		XML_CONTENT_TYPE);
+        }
+    }      
 
     private static byte[] createSearchEntity(String sqlString)
             throws Exception {
