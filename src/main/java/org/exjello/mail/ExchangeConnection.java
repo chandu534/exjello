@@ -1192,16 +1192,19 @@ class ExchangeConnection {
         }
     }
 
-    private static RequestEntity createCustomInboxEntity(boolean unreaded, String filterLastCheck, String filterFrom, String filterTo) throws Exception {
+    private static RequestEntity createCustomInboxEntity(boolean unfiltered, String filterLastCheck, String filterFrom, String filterTo) throws Exception {
         synchronized (ExchangeConnection.class) {
-            if (customInboxEntity == null) {
+        	/*
+        	 * If user has to use filter base on a adte we have to build a new filter
+        	 */
+            // if (customInboxEntity == null) {
             	customInboxEntity = createSearchEntity(new String(getResource(
             			GET_FILTERED_MESSAGES_SQL_RESOURCE), "UTF-8"));
-            }
+            // }
             
             /* Mirco: Replace Filtes */
             String filter = new String(customInboxEntity);
-            if (unreaded) {
+            if (!unfiltered) {
             	filter = filter.replace(BOOKMARK_FILTER_UNREADED, "AND \"urn:schemas:httpmail:read\" = False");
             } else {
             	filter = filter.replace(BOOKMARK_FILTER_UNREADED, "");
