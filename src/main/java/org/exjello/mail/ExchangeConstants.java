@@ -62,6 +62,9 @@ public interface ExchangeConstants {
      */  
     public static final String FILTER_FROM_PROPERTY =
             "org.exjello.mail.filterfrom";
+    
+    public static final String FILTER_NOT_FROM_PROPERTY =
+        "org.exjello.mail.filternotfrom";
 
     /**
      * Specifies whether retrievals should be filtered to return only
