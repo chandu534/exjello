@@ -135,6 +135,9 @@ class ExchangeConnection {
 
 	private static final String XML_CONTENT_TYPE = "text/xml; charset=\"UTF-8\"";
 
+    private static final String FORM_URLENCODED_CONTENT_TYPE =
+            "application/x-www-form-urlencoded; charset=utf-8";
+
 	private static final int HTTP_PORT = 80;
 
 	private static final int HTTPS_PORT = 443;
@@ -374,10 +377,10 @@ class ExchangeConnection {
 			debugStream.print("Options:\t");
 			debugStream.print((limit > 0) ? "Message Limit = " + limit : "Unlimited Messages");
 			debugStream.print(unfiltered ? "; Unfiltered" : "; Filtered to Unread");
-			debugStream.print(filterLastCheck == null || filterLastCheck.isEmpty() ? "; NO filterLastCheck" : "; Filtered after " + filterLastCheck);
-			debugStream.print(filterFrom == null || filterFrom.isEmpty() ? "; NO filterFromDomain" : "; Filtered from " + filterFrom);
-			debugStream.print(filterNotFrom == null || filterNotFrom.isEmpty() ? "; NO filterNotFrom" : "; Filtered not from " + filterNotFrom);
-			debugStream.print(filterTo == null || filterTo.isEmpty() ? "; NO filterToEmail" : "; Filtered to " + filterTo);
+			debugStream.print(filterLastCheck == null || "".equals(filterLastCheck) ? "; NO filterLastCheck" : "; Filtered after " + filterLastCheck);
+			debugStream.print(filterFrom == null || "".equals(filterFrom) ? "; NO filterFromDomain" : "; Filtered from " + filterFrom);
+			debugStream.print(filterNotFrom == null || "".equals(filterNotFrom) ? "; NO filterNotFrom" : "; Filtered not from " + filterNotFrom);
+			debugStream.print(filterTo == null || "".equals(filterTo) ? "; NO filterToEmail" : "; Filtered to " + filterTo);
 			debugStream.println(delete ? "; Delete Messages on Delete" : "; Mark as Read on Delete");
 			if (timeout > 0) {
 				debugStream.println("Read timeout:\t" + timeout + " ms");
@@ -815,7 +818,7 @@ class ExchangeConnection {
 			op.setHeader("Brief", "t");
 
 			/* Mirco: Manage of custom query */
-			if ((filterLastCheck == null || filterLastCheck.isEmpty()) && (filterFrom == null || filterFrom.isEmpty()) && (filterNotFrom == null || filterNotFrom.isEmpty()) && (filterTo == null || filterTo.isEmpty())) {
+			if ((filterLastCheck == null || "".equals(filterLastCheck)) && (filterFrom == null || "".equals(filterFrom)) && (filterNotFrom == null || "".equals(filterNotFrom)) && (filterTo == null || "".equals(filterTo))) {
 				op.setRequestEntity(unfiltered ? createAllInboxEntity() : createUnreadInboxEntity());
 			} else {
 				op.setRequestEntity(createCustomInboxEntity(unfiltered, filterLastCheck, filterFrom, filterNotFrom, filterTo));
@@ -1019,7 +1022,7 @@ class ExchangeConnection {
 		}
 		if (!authenticated) {
 			PostMethod op = new PostMethod(server + SIGN_ON_URI);
-			op.setRequestHeader("Content-Type", "application/x-www-form-urlencoded");
+			op.setRequestHeader("Content-Type", FORM_URLENCODED_CONTENT_TYPE);
 			op.addParameter("destination", server + "/exchange");
 			op.addParameter("flags", "0");
 			op.addParameter("username", username);
@@ -1160,20 +1163,20 @@ class ExchangeConnection {
 			} else {
 				filter = filter.replace(BOOKMARK_FILTER_UNREADED, "");
 			}
-			if (filterLastCheck != null && !filterLastCheck.isEmpty()) {
+			if (filterLastCheck != null && !"".equals(filterLastCheck)) {
 				// Es. AND "urn:schemas:httpmail:datereceived" >
 				// CAST("2010-08-04T00:00:00Z" as 'dateTime')
 				filter = filter.replace(BOOKMARK_FILTER_LAST_CHECK, "AND \"urn:schemas:httpmail:datereceived\" > CAST(\"" + filterLastCheck + "\" as 'dateTime')");
 			} else {
 				filter = filter.replace(BOOKMARK_FILTER_LAST_CHECK, "");
 			}
-			if (filterFrom != null && !filterFrom.isEmpty()) {
+			if (filterFrom != null && !"".equals(filterFrom)) {
 				// Es. AND "urn:schemas:httpmail:fromemail" LIKE '@domain.com%'
 				filter = filter.replace(BOOKMARK_FILTER_FROM, "AND \"urn:schemas:httpmail:fromemail\" LIKE '%" + filterFrom + "%'");
 			} else {
 				filter = filter.replace(BOOKMARK_FILTER_FROM, "");
 			}
-			if (filterNotFrom != null && !filterNotFrom.isEmpty()) {
+			if (filterNotFrom != null && !"".equals(filterNotFrom)) {
 				if (filterNotFrom.indexOf(";") > 0) {
 					StringBuilder sb = new StringBuilder();
 					// sb.append("AND (");
@@ -1191,7 +1194,7 @@ class ExchangeConnection {
 			} else {
 				filter = filter.replace(BOOKMARK_FILTER_NOT_FROM, "");
 			}
-			if (filterTo != null && !filterTo.isEmpty()) {
+			if (filterTo != null && !"".equals(filterTo)) {
 				// Es. AND "urn:schemas:httpmail:to" LIKE '%test@domain.com%'
 				filter = filter.replace(BOOKMARK_FILTER_TO, "AND \"urn:schemas:httpmail:to\" LIKE '%" + filterTo + "%'");
 			} else {

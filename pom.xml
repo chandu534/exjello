@@ -3,7 +3,7 @@
     <groupId>org.exjello</groupId>
     <artifactId>exjello</artifactId>
     <packaging>jar</packaging>
-    <version>1.0</version>
+    <version>1.2</version>
     <name>exjello</name>
     <url>http://code.google.com/p/exjello</url>
     <dependencies>
