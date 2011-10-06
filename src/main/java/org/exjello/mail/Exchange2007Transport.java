@@ -1,5 +1,5 @@
 /*
-Copyright (c) 2010 Eric Glass, Mirco Attocchi
+Copyright (c) 2010 Eric Glass
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -18,25 +18,23 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
- */
+*/
 
 package org.exjello.mail;
 
-import java.io.InputStream;
-import java.util.List;
+import javax.mail.Session;
+import javax.mail.URLName;
 
-import javax.mail.internet.MimeMessage;
+public class Exchange2007Transport extends ExchangeTransport {
 
-interface ExchangeConnection {
+	public Exchange2007Transport(Session session, URLName urlname) {
+		super(session, urlname);
+	}
 
-	public void connect() throws Exception;
-
-	public List<String> getMessages(String name) throws Exception;
-
-	public void send(MimeMessage message) throws Exception;
-
-	public void delete(List<ExchangeMessage> messages) throws Exception;
-
-	public InputStream getInputStream(ExchangeMessage message) throws Exception;
+    protected ExchangeConnection createConnection(String host, int port,
+            String username, String password) throws Exception {
+        return Exchange2007Connection.createConnection(SMTP_PROTOCOL, session,
+                host, port, username, password);
+    }
 
 }

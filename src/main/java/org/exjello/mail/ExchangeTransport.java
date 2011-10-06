@@ -40,7 +40,7 @@ import javax.mail.internet.MimeMessage;
 
 public class ExchangeTransport extends Transport {
 
-    private static final String SMTP_PROTOCOL = "smtp";
+    protected static final String SMTP_PROTOCOL = "smtp";
 
     private ExchangeConnection connection;
 
@@ -126,8 +126,7 @@ public class ExchangeTransport extends Transport {
             String password) throws MessagingException {
         synchronized (this) {
             try {
-                connection = ExchangeConnection.createConnection(SMTP_PROTOCOL,
-                        session, host, port, username, password);
+                connection = createConnection(host, port, username, password);
             } catch (Exception ex) {
                 throw new MessagingException(ex.getMessage(), ex);
             }
@@ -151,6 +150,12 @@ public class ExchangeTransport extends Transport {
             super.setConnected(connected);
             if (!connected) connection = null;
         }
+    }
+
+    protected ExchangeConnection createConnection(String host, int port,
+            String username, String password) throws Exception {
+        return Exchange2003Connection.createConnection(SMTP_PROTOCOL, session,
+                host, port, username, password);
     }
 
     private void checkConnection() throws IllegalStateException {

@@ -18,25 +18,23 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
- */
+*/
 
 package org.exjello.mail;
 
-import java.io.InputStream;
-import java.util.List;
+import javax.mail.Session;
+import javax.mail.URLName;
 
-import javax.mail.internet.MimeMessage;
+public class Exchange2007Store extends ExchangeStore {
 
-interface ExchangeConnection {
+	public Exchange2007Store(Session session, URLName urlname) {
+		super(session, urlname);
+	}
 
-	public void connect() throws Exception;
-
-	public List<String> getMessages(String name) throws Exception;
-
-	public void send(MimeMessage message) throws Exception;
-
-	public void delete(List<ExchangeMessage> messages) throws Exception;
-
-	public InputStream getInputStream(ExchangeMessage message) throws Exception;
+    protected ExchangeConnection createConnection(String host, int port,
+            String username, String password) throws Exception {
+        return Exchange2007Connection.createConnection(POP3_PROTOCOL, session,
+                host, port, username, password);
+    }
 
 }

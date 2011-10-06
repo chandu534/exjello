@@ -33,7 +33,7 @@ import javax.mail.URLName;
 
 public class ExchangeStore extends Store {
 
-    private static final String POP3_PROTOCOL = "pop3";
+    protected static final String POP3_PROTOCOL = "pop3";
 
     private ExchangeConnection connection;
 
@@ -56,8 +56,7 @@ public class ExchangeStore extends Store {
             String password) throws MessagingException {
         synchronized (this) {
             try {
-                connection = ExchangeConnection.createConnection(POP3_PROTOCOL,
-                        session, host, port, username, password);
+                connection = createConnection(host, port, username, password);
             } catch (Exception ex) {
                 throw new MessagingException(ex.getMessage(), ex);
             }
@@ -99,6 +98,12 @@ public class ExchangeStore extends Store {
             super.setConnected(connected);
             if (!connected) connection = null;
         }
+    }
+
+    protected ExchangeConnection createConnection(String host, int port,
+            String username, String password) throws Exception {
+        return Exchange2003Connection.createConnection(POP3_PROTOCOL, session,
+                host, port, username, password);
     }
 
     private void checkConnection() throws IllegalStateException {
